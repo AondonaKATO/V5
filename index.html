@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wi-Fi & Bluetooth File Sharing</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    input[type="file"], input[type="text"] {
+      margin: 10px 0;
+      width: 100%;
+      padding: 8px;
+    }
+    button, select {
+      padding: 10px 15px;
+      font-size: 16px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    #progressBar {
+      width: 100%;
+      background: #f3f3f3;
+      border-radius: 5px;
+      margin-top: 10px;
+    }
+    #progress {
+      height: 10px;
+      width: 0;
+      background: green;
+      border-radius: 5px;
+    }
+    #qrCode {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Wi-Fi & Bluetooth File Sharing</h2>
+    <div id="status">Loading...</div>
+
+    <label>Your Peer ID (share this):</label>
+    <input type="text" id="myPeerId" readonly />
+    <img id="qrCode" src="" alt="QR Code" />
+
+    <label for="connectToId">Enter Peer ID to Connect:</label>
+    <input type="text" id="connectToId" placeholder="Peer ID" />
+    <button onclick="manualConnect()">Connect</button>
+
+    <label for="peerList">Connected Devices:</label>
+    <select id="peerList"></select>
+
+    <input type="file" id="fileInput" />
+    <button onclick="sendFile()">Send File</button>
+
+    <div id="progressBar"><div id="progress"></div></div>
+
+    <hr />
+    <button onclick="startBluetoothShare()">Send via Bluetooth</button>
+  </div>
+
+  <script src="https://unpkg.com/peerjs@1.3.2/dist/peerjs.min.js"></script>
+  <script>
+    const peer = new Peer();
+    let conn;
+    let connections = {};
+
+    peer.on("open", id => {
+      document.getElementById("myPeerId").value = id;
+      document.getElementById("status").innerText = `Your ID: ${id}`;
+      document.getElementById("qrCode").src = `https://chart.googleapis.com/chart?cht=qr&chs=200x200&chl=${id}`;
+    });
+
+    peer.on("connection", connection => {
+      connection.on("open", () => {
+        connections[connection.peer] = connection;
+        updatePeerList();
+        setupReceiver(connection);
+      });
+    });
+
+    function updatePeerList() {
+      const peerList = document.getElementById("peerList");
+      peerList.innerHTML = "";
+      Object.keys(connections).forEach(id => {
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = id;
+        peerList.appendChild(option);
+      });
+    }
+
+    function manualConnect() {
+      const peerId = document.getElementById("connectToId").value.trim();
+      if (!peerId) return alert("Enter a valid Peer ID");
+      const connection = peer.connect(peerId);
+      connection.on("open", () => {
+        connections[peerId] = connection;
+        updatePeerList();
+        setupReceiver(connection);
+        document.getElementById("status").innerText = `Connected to ${peerId}`;
+      });
+    }
+
+    function setupReceiver(connection) {
+      connection.on("data", data => {
+        const blob = new Blob([data.file], { type: data.type });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = data.name;
+        a.textContent = `Download ${data.name}`;
+        document.body.appendChild(a);
+        document.getElementById("status").innerText = `Received file: ${data.name}`;
+      });
+    }
+
+    function sendFile() {
+      const fileInput = document.getElementById("fileInput");
+      const file = fileInput.files[0];
+      const selectedPeer = document.getElementById("peerList").value;
+      const selectedConn = connections[selectedPeer];
+
+      if (!file || !selectedConn || selectedConn.open === false) {
+        alert("No file selected or not connected to selected peer.");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        const arrayBuffer = e.target.result;
+        selectedConn.send({
+          name: file.name,
+          type: file.type,
+          file: arrayBuffer
+        });
+        document.getElementById("status").innerText = `File sent: ${file.name}`;
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    function startBluetoothShare() {
+      const fileInput = document.getElementById("fileInput");
+      const file = fileInput.files[0];
+
+      if (!file) {
+        alert("Select a file first.");
+        return;
+      }
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: "File Sharing",
+          text: "Sharing a file via Bluetooth/Web Share API"
+        }).then(() => {
+          document.getElementById("status").innerText = `Bluetooth file sharing successful.`;
+        }).catch(console.error);
+      } else {
+        alert("Bluetooth sharing not supported on this device or browser.");
+      }
+    }
+  </script>
+</body>
+</html>
